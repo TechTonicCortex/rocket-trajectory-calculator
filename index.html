@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mission Planner — Rocket Trajectory Calculator</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@300;400;600;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #04080f;
+  --surface: #080e1a;
+  --surface2: #0c1425;
+  --border: rgba(0,200,255,0.12);
+  --accent: #00c8ff;
+  --accent2: #00ff9d;
+  --warn: #ff6b35;
+  --text: #c8e8ff;
+  --dim: #3a6080;
+  --grid: rgba(0,150,200,0.04);
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Share Tech Mono', monospace;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Grid background */
+body::before {
+  content:'';
+  position:fixed; inset:0;
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events:none; z-index:0;
+}
+
+.app { position:relative; z-index:1; display:grid; grid-template-columns:380px 1fr; min-height:100vh; }
+
+/* ── SIDEBAR ── */
+.sidebar {
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.sidebar-header {
+  padding: 24px 24px 20px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0,200,255,0.03);
+}
+
+.mission-tag {
+  font-size: 10px;
+  letter-spacing: 4px;
+  color: var(--accent);
+  opacity: 0.7;
+  margin-bottom: 6px;
+}
+
+.sidebar-title {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 28px;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: 1px;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+
+.sidebar-sub {
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 2px;
+}
+
+.section {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.section-label {
+  font-size: 9px;
+  letter-spacing: 3px;
+  color: var(--accent);
+  opacity: 0.6;
+  text-transform: uppercase;
+  margin-bottom: 14px;
+}
+
+/* Planet selector */
+.planet-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.planet-btn {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+  font-family: 'Share Tech Mono', monospace;
+}
+
+.planet-btn:hover { border-color: var(--accent); background: rgba(0,200,255,0.05); }
+.planet-btn.active { border-color: var(--accent2); background: rgba(0,255,157,0.08); }
+
+.planet-btn .p-emoji { font-size: 20px; display:block; margin-bottom:4px; }
+.planet-btn .p-name { font-size: 8px; color: var(--dim); letter-spacing: 1px; }
+.planet-btn.active .p-name { color: var(--accent2); }
+
+/* Input fields */
+.field { margin-bottom: 14px; }
+.field label {
+  display: block;
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: var(--dim);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.field input {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 13px;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.field input:focus { border-color: var(--accent); }
+.field .unit { font-size: 9px; color: var(--dim); margin-top: 3px; letter-spacing: 1px; }
+
+/* Launch button */
+.launch-btn {
+  margin: 20px 24px 24px;
+  width: calc(100% - 48px);
+  background: linear-gradient(135deg, #003a50, #001a28);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  padding: 16px;
+  font-family: 'Barlow Condensed', monospace;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 4px;
+  color: var(--accent);
+  cursor: pointer;
+  transition: all 0.3s;
+  text-transform: uppercase;
+  position: relative;
+  overflow: hidden;
+}
+
+.launch-btn::before {
+  content:'';
+  position:absolute; inset:0;
+  background: linear-gradient(135deg, rgba(0,200,255,0.1), transparent);
+  opacity:0; transition: opacity 0.3s;
+}
+
+.launch-btn:hover { box-shadow: 0 0 30px rgba(0,200,255,0.2); }
+.launch-btn:hover::before { opacity:1; }
+
+/* Results panel */
+.results {
+  padding: 20px 24px;
+  border-top: 1px solid var(--border);
+  display: none;
+}
+
+.results.visible { display: block; animation: fadeIn 0.4s ease; }
+
+@keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+.result-title {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  color: var(--accent2);
+  margin-bottom: 14px;
+  text-transform: uppercase;
+}
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(0,200,255,0.06);
+}
+
+.stat-row:last-child { border-bottom: none; }
+.stat-key { font-size: 9px; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; }
+.stat-val { font-size: 14px; color: var(--text); font-weight: 500; }
+.stat-val.highlight { color: var(--accent2); }
+.stat-val.warn { color: var(--warn); }
+
+.feasibility {
+  margin-top: 14px;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+  display: flex;
+  gap: 8px;
+}
+
+.feasibility.go { background: rgba(0,255,157,0.06); border: 1px solid rgba(0,255,157,0.2); color: var(--accent2); }
+.feasibility.nogo { background: rgba(255,107,53,0.06); border: 1px solid rgba(255,107,53,0.2); color: var(--warn); }
+
+/* ── MAIN CANVAS AREA ── */
+.main {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.main-header {
+  padding: 20px 28px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(4,8,15,0.8);
+}
+
+.view-label {
+  font-size: 9px;
+  letter-spacing: 3px;
+  color: var(--dim);
+  text-transform: uppercase;
+}
+
+#missionStatus {
+  font-size: 11px;
+  color: var(--accent);
+  letter-spacing: 2px;
+}
+
+canvas {
+  flex: 1;
+  width: 100%;
+  cursor: crosshair;
+}
+
+/* Legend */
+.legend {
+  padding: 12px 28px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 24px;
+  background: rgba(4,8,15,0.9);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 9px;
+  color: var(--dim);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+.legend-line { width: 20px; height: 2px; border-radius: 1px; }
+
+/* Tooltip */
+.tooltip {
+  position: fixed;
+  background: rgba(8,14,26,0.95);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 10px;
+  color: var(--accent);
+  pointer-events: none;
+  display: none;
+  z-index: 100;
+  backdrop-filter: blur(8px);
+  letter-spacing: 1px;
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <div class="mission-tag">// MISSION CONTROL</div>
+      <div class="sidebar-title">TRAJECTORY<br>CALCULATOR</div>
+      <div class="sidebar-sub">HOHMANN TRANSFER · REAL ORBITAL MECHANICS</div>
+    </div>
+
+    <!-- Target planet -->
+    <div class="section">
+      <div class="section-label">01 — Select Target Planet</div>
+      <div class="planet-grid">
+        <div class="planet-btn" data-planet="Venus" onclick="selectPlanet(this)">
+          <span class="p-emoji">🟡</span><span class="p-name">VENUS</span>
+        </div>
+        <div class="planet-btn active" data-planet="Mars" onclick="selectPlanet(this)">
+          <span class="p-emoji">🔴</span><span class="p-name">MARS</span>
+        </div>
+        <div class="planet-btn" data-planet="Jupiter" onclick="selectPlanet(this)">
+          <span class="p-emoji">🟠</span><span class="p-name">JUPITER</span>
+        </div>
+        <div class="planet-btn" data-planet="Saturn" onclick="selectPlanet(this)">
+          <span class="p-emoji">🪐</span><span class="p-name">SATURN</span>
+        </div>
+        <div class="planet-btn" data-planet="Mercury" onclick="selectPlanet(this)">
+          <span class="p-emoji">⚫</span><span class="p-name">MERCURY</span>
+        </div>
+        <div class="planet-btn" data-planet="Uranus" onclick="selectPlanet(this)">
+          <span class="p-emoji">🔵</span><span class="p-name">URANUS</span>
+        </div>
+        <div class="planet-btn" data-planet="Neptune" onclick="selectPlanet(this)">
+          <span class="p-emoji">💙</span><span class="p-name">NEPTUNE</span>
+        </div>
+        <div class="planet-btn" data-planet="Moon" onclick="selectPlanet(this)">
+          <span class="p-emoji">🌙</span><span class="p-name">MOON</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Rocket specs -->
+    <div class="section">
+      <div class="section-label">02 — Rocket Specifications</div>
+      <div class="field">
+        <label>Rocket Preset</label>
+        <select id="rocketPreset" onchange="applyPreset()" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-family:'Share Tech Mono',monospace;font-size:12px;color:var(--text);outline:none;cursor:pointer;">
+          <option value="">— Custom —</option>
+          <option value="falcon9">Falcon 9 (SpaceX)</option>
+          <option value="falconheavy" selected>Falcon Heavy (SpaceX)</option>
+          <option value="saturnv">Saturn V (Apollo)</option>
+          <option value="sls">SLS Block 1 (NASA Artemis)</option>
+          <option value="starship">Starship (SpaceX)</option>
+          <option value="ion">Ion Drive (Hypothetical)</option>
+        </select>
+        <div class="unit">SELECT A REAL ROCKET OR ENTER CUSTOM VALUES</div>
+      </div>
+      <div class="field">
+        <label>Dry Mass (spacecraft without fuel)</label>
+        <input type="number" id="dryMass" value="70000" min="1000">
+        <div class="unit">KG — Falcon Heavy payload: 50,000 · Saturn V: 130,000</div>
+      </div>
+      <div class="field">
+        <label>Fuel Mass</label>
+        <input type="number" id="fuelMass" value="440000" min="1000">
+        <div class="unit">KG — Falcon Heavy: 400,000 · Saturn V: 2,000,000 · max: 10,000,000</div>
+      </div>
+      <div class="field">
+        <label>Specific Impulse (Isp) — Engine Efficiency</label>
+        <input type="number" id="isp" value="450" min="100" max="10000">
+        <div class="unit">SECONDS — chemical: 300–450 · ion: 1000–10000</div>
+      </div>
+    </div>
+
+    <!-- Mission date -->
+    <div class="section">
+      <div class="section-label">03 — Launch Window</div>
+      <div class="field">
+        <label>Planned Launch Year</label>
+        <input type="number" id="launchYear" value="2026" min="2024" max="2050">
+        <div class="unit">YEAR — affects planet alignment</div>
+      </div>
+    </div>
+
+    <button class="launch-btn" onclick="calculate()">⚡ CALCULATE TRAJECTORY</button>
+
+    <!-- Results -->
+    <div class="results" id="results">
+      <div class="result-title">▸ Mission Report</div>
+      <div id="resultContent"></div>
+    </div>
+  </div>
+
+  <!-- MAIN CANVAS -->
+  <div class="main">
+    <div class="main-header">
+      <span class="view-label">SOLAR SYSTEM · ORBITAL VIEW</span>
+      <span id="missionStatus">SELECT TARGET AND CALCULATE</span>
+    </div>
+    <canvas id="orbitCanvas"></canvas>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#ffd700"></div> Sun</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#4fc3f7"></div> Earth</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#ff6b6b"></div> Target</div>
+      <div class="legend-item"><div class="legend-line" style="background:rgba(100,200,255,0.3)"></div> Orbit</div>
+      <div class="legend-item"><div class="legend-line" style="background:#00ff9d;height:2px;border-top:1px dashed #00ff9d"></div> Transfer Arc</div>
+      <div class="legend-item"><div class="legend-line" style="background:rgba(255,200,0,0.5)"></div> Target Orbit</div>
+    </div>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+// ── PHYSICAL CONSTANTS ────────────────────────────────────────────
+const G  = 6.674e-11;      // gravitational constant m³/(kg·s²)
+const M_SUN = 1.989e30;    // solar mass kg
+const AU = 1.496e11;       // 1 AU in metres
+const G_0 = 9.80665;       // standard gravity m/s²
+
+// ── PLANET DATA ───────────────────────────────────────────────────
+// a = semi-major axis in AU, T = orbital period in Earth days, color, size
+const PLANET_DATA = {
+  Mercury: { a:0.387, T:87.97,   color:'#b5b5b5', size:4,  emoji:'⚫' },
+  Venus:   { a:0.723, T:224.70,  color:'#e8cda0', size:6,  emoji:'🟡' },
+  Earth:   { a:1.000, T:365.25,  color:'#4fc3f7', size:6,  emoji:'🌍' },
+  Mars:    { a:1.524, T:686.97,  color:'#ef5350', size:5,  emoji:'🔴' },
+  Jupiter: { a:5.203, T:4332.59, color:'#e8a87c', size:14, emoji:'🟠' },
+  Saturn:  { a:9.537, T:10759.2, color:'#f0d080', size:12, emoji:'🪐' },
+  Uranus:  { a:19.19, T:30685.4, color:'#80deea', size:9,  emoji:'🔵' },
+  Neptune: { a:30.07, T:60189.0, color:'#5c6bc0', size:9,  emoji:'💙' },
+  Moon:    { a:0.00257, T:27.32, color:'#d0d0c8', size:3,  emoji:'🌙', parent:'Earth' }
+};
+
+// ── ORBITAL MECHANICS ─────────────────────────────────────────────
+
+// Hohmann transfer: most fuel-efficient two-burn manoeuvre between circular orbits
+// Returns delta-v1 (departure burn), delta-v2 (arrival burn), transfer time in days
+function hohmannTransfer(r1_au, r2_au) {
+  const r1 = r1_au * AU;
+  const r2 = r2_au * AU;
+  const mu = G * M_SUN;
+
+  // Circular orbital velocities
+  const v1 = Math.sqrt(mu / r1);  // Earth orbit speed
+  const v2 = Math.sqrt(mu / r2);  // Target orbit speed
+
+  // Transfer ellipse semi-major axis
+  const a_transfer = (r1 + r2) / 2;
+
+  // Velocities on the transfer ellipse at perihelion and aphelion
+  const v_transfer_peri = Math.sqrt(mu * (2/r1 - 1/a_transfer));
+  const v_transfer_apo  = Math.sqrt(mu * (2/r2 - 1/a_transfer));
+
+  // Delta-v burns
+  const dv1 = Math.abs(v_transfer_peri - v1);  // departure burn
+  const dv2 = Math.abs(v2 - v_transfer_apo);   // arrival burn
+  const dv_total = dv1 + dv2;
+
+  // Transfer time = half the period of the transfer ellipse
+  const T_transfer = Math.PI * Math.sqrt(Math.pow(a_transfer, 3) / mu);
+  const days = T_transfer / 86400;
+
+  return { dv1, dv2, dv_total, days, a_transfer, v1, v2 };
+}
+
+// Tsiolkovsky rocket equation: Δv = Isp × g₀ × ln(m0/m1)
+// Solving for propellant mass: m_prop = m0 × (1 - e^(-Δv/(Isp×g₀)))
+function rocketEquation(dv, dryMass, fuelMass, isp) {
+  const m0 = dryMass + fuelMass;   // total initial mass
+  const ve = isp * G_0;             // effective exhaust velocity
+  const dv_max = ve * Math.log(m0 / dryMass);  // max delta-v with all fuel
+
+  // Mass ratio needed for this delta-v
+  const mass_ratio = Math.exp(dv / ve);
+  const m_prop_needed = dryMass * (mass_ratio - 1);
+  const m_prop_available = fuelMass;
+
+  const feasible = m_prop_needed <= m_prop_available;
+  const fuel_pct = (m_prop_needed / m_prop_available) * 100;
+
+  return { dv_max, mass_ratio, m_prop_needed, m_prop_available, feasible, fuel_pct };
+}
+
+// Phase angle for launch window
+// The target planet must be ahead by this angle at departure
+function launchWindowAngle(r1_au, r2_au) {
+  const r1 = r1_au * AU;
+  const r2 = r2_au * AU;
+  const mu = G * M_SUN;
+  const a_t = (r1 + r2) / 2;
+  const T_transfer = Math.PI * Math.sqrt(Math.pow(a_t, 3) / mu);
+
+  // Angular velocity of target planet
+  const omega_target = 2 * Math.PI / (PLANET_DATA[selectedPlanet]?.T * 86400 || 1);
+  const phase_angle = Math.PI - omega_target * T_transfer;
+
+  return (phase_angle * 180 / Math.PI + 360) % 360;
+}
+
+// Planet angle at a given date (simplified circular orbit)
+function planetAngleAtYear(planet, year) {
+  // J2000 reference angles (degrees, approximate)
+  const ref_angles = {
+    Mercury:252.25, Venus:181.98, Earth:100.46, Mars:355.45,
+    Jupiter:34.40, Saturn:49.94, Uranus:313.23, Neptune:304.88, Moon:218.3
+  };
+  const days_since_j2000 = (year - 2000) * 365.25;
+  const daily_motion = 360 / PLANET_DATA[planet].T;
+  return ((ref_angles[planet] || 0) + daily_motion * days_since_j2000) % 360;
+}
+
+// ── STATE ─────────────────────────────────────────────────────────
+let selectedPlanet = 'Mars';
+let missionData = null;
+let animAngle = 0;
+let animFrame = null;
+
+function selectPlanet(btn) {
+  document.querySelectorAll('.planet-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  selectedPlanet = btn.dataset.planet;
+  drawOrbits();
+}
+
+// ── ROCKET PRESETS ────────────────────────────────────────────────
+const PRESETS = {
+  falcon9:      { dry: 25600,    fuel: 395700,    isp: 348, label: 'Falcon 9' },
+  falconheavy:  { dry: 70000,    fuel: 1400000,   isp: 348, label: 'Falcon Heavy' },
+  saturnv:      { dry: 130000,   fuel: 2800000,   isp: 421, label: 'Saturn V' },
+  sls:          { dry: 95000,    fuel: 2600000,   isp: 432, label: 'SLS Block 1' },
+  starship:     { dry: 120000,   fuel: 4800000,   isp: 380, label: 'Starship' },
+  ion:          { dry: 5000,     fuel: 10000,     isp: 3000, label: 'Ion Drive' },
+};
+
+function applyPreset() {
+  const key = document.getElementById('rocketPreset').value;
+  if (!key || !PRESETS[key]) return;
+  const p = PRESETS[key];
+  document.getElementById('dryMass').value = p.dry;
+  document.getElementById('fuelMass').value = p.fuel;
+  document.getElementById('isp').value = p.isp;
+}
+
+// ── CALCULATE ─────────────────────────────────────────────────────
+function calculate() {
+  const dryMass  = parseFloat(document.getElementById('dryMass').value);
+  const fuelMass = parseFloat(document.getElementById('fuelMass').value);
+  const isp      = parseFloat(document.getElementById('isp').value);
+  const year     = parseFloat(document.getElementById('launchYear').value);
+
+  // Validate inputs
+  if (fuelMass > dryMass * 100) {
+    document.getElementById('missionStatus').textContent = 'INVALID — FUEL MASS TOO HIGH';
+    document.getElementById('results').classList.add('visible');
+    document.getElementById('resultContent').innerHTML = `
+      <div class="feasibility nogo">
+        <span>⚠️</span>
+        <span><strong>INVALID INPUT</strong> — Fuel mass can't realistically exceed 100× dry mass. 
+        Try: Dry Mass 50,000 kg · Fuel Mass 400,000 kg · Isp 450s for a Falcon Heavy-class rocket.</span>
+      </div>`;
+    return;
+  }
+
+  const target = PLANET_DATA[selectedPlanet];
+  const earth  = PLANET_DATA['Earth'];
+
+  // For Moon, use Earth-Moon distance
+  const r1 = (selectedPlanet === 'Moon') ? 1.0 : earth.a;
+  const r2 = (selectedPlanet === 'Moon') ? 1.00257 : target.a;
+
+  const orbit = hohmannTransfer(r1, r2);
+  const rocket = rocketEquation(orbit.dv_total, dryMass, fuelMass, isp);
+  const phase  = launchWindowAngle(r1, r2);
+
+  // Find next launch window (very simplified)
+  const synodic = Math.abs(1 / (1/earth.T - 1/target.T));
+  const nextWindow = isNaN(synodic) ? 'N/A' : `Every ${Math.round(synodic)} days`;
+
+  missionData = { orbit, rocket, phase, synodic, year, target, r1, r2 };
+
+  // Display results
+  const r = document.getElementById('resultContent');
+  const feasClass = rocket.feasible ? 'highlight' : 'warn';
+  const feasIcon  = rocket.feasible ? '✓ GO' : '✗ NO-GO';
+
+  r.innerHTML = `
+    <div class="stat-row">
+      <span class="stat-key">Total Δv Required</span>
+      <span class="stat-val highlight">${(orbit.dv_total/1000).toFixed(2)} km/s</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-key">Departure Burn (Δv₁)</span>
+      <span class="stat-val">${(orbit.dv1/1000).toFixed(2)} km/s</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-key">Arrival Burn (Δv₂)</span>
+      <span class="stat-val">${(orbit.dv2/1000).toFixed(2)} km/s</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-key">Transfer Time</span>
+      <span class="stat-val highlight">${Math.round(orbit.days)} days (${(orbit.days/365.25).toFixed(2)} yrs)</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-key">Max Rocket Δv</span>
+      <span class="stat-val">${(rocket.dv_max/1000).toFixed(2)} km/s</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-key">Fuel Required</span>
+      <span class="stat-val ${feasClass}">${Math.round(rocket.m_prop_needed).toLocaleString()} kg</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-key">Fuel Used</span>
+      <span class="stat-val ${feasClass}">${Math.min(rocket.fuel_pct,999).toFixed(1)}% of tank</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-key">Launch Window Phase Angle</span>
+      <span class="stat-val">${phase.toFixed(1)}°</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-key">Launch Window Frequency</span>
+      <span class="stat-val">${nextWindow}</span>
+    </div>
+    <div class="feasibility ${rocket.feasible ? 'go' : 'nogo'}">
+      <span>${rocket.feasible ? '🟢' : '🔴'}</span>
+      <span><strong>${feasIcon}</strong> — ${rocket.feasible
+        ? `Mission feasible. ${(100-rocket.fuel_pct).toFixed(1)}% fuel margin remaining.`
+        : `Insufficient fuel. Need ${Math.round(rocket.m_prop_needed - fuelMass).toLocaleString()} kg more.`
+      }</span>
+    </div>
+  `;
+
+  document.getElementById('results').classList.add('visible');
+  document.getElementById('missionStatus').textContent =
+    `TARGET: ${selectedPlanet.toUpperCase()} · ${Math.round(orbit.days)}d TRANSFER`;
+
+  drawOrbits(rocket.feasible);
+}
+
+// ── CANVAS DRAWING ────────────────────────────────────────────────
+const canvas = document.getElementById('orbitCanvas');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvas() {
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width  = rect.width;
+  canvas.height = rect.height - 110; // subtract header + legend
+  drawOrbits(!!missionData);
+}
+
+function drawOrbits(showTransfer = false) {
+  if (animFrame) cancelAnimationFrame(animFrame);
+  animAngle = 0;
+
+  const W = canvas.width, H = canvas.height;
+  const cx = W/2, cy = H/2;
+
+  // Scale: fit Neptune if needed, else fit selected planet with padding
+  const maxAU = selectedPlanet === 'Neptune' ? 31 :
+                selectedPlanet === 'Uranus'  ? 21 :
+                selectedPlanet === 'Saturn'  ? 11 :
+                selectedPlanet === 'Jupiter' ? 6.5 : 2.2;
+  const scale = (Math.min(W,H) * 0.44) / maxAU;
+
+  function auToScreen(au_x, au_y) {
+    return { x: cx + au_x * scale, y: cy + au_y * scale };
+  }
+
+  // Pre-compute: Earth's launch angle and target's arrival angle
+  // Earth starts at its position at launchYear
+  // Target must be at arrival angle = Earth_launch_angle + 180° (aphelion of transfer)
+  // Target arrival angle is calculated so the planet is THERE when spacecraft arrives
+
+  const launchYear = missionData?.year || 2026;
+  const transferDays = missionData?.orbit.days || 0;
+
+  // Earth angle at launch (radians)
+  const earthLaunchDeg = planetAngleAtYear('Earth', launchYear);
+  const earthLaunchRad = earthLaunchDeg * Math.PI / 180;
+
+  // The transfer ellipse perihelion is at Earth's position at launch
+  // Spacecraft travels 180° around the ellipse to arrive at aphelion
+  // Arrival angle = earthLaunchRad + π  (opposite side of ellipse)
+  const arrivalRad = earthLaunchRad + Math.PI;
+
+  // Target planet must be at arrivalRad when spacecraft arrives
+  // So we draw the target at arrivalRad at progress=1, and animate it backwards
+  // to its launch-time position at progress=0
+
+  function getPlanetAngleAtProgress(name, prog) {
+    if (!showTransfer || !missionData) {
+      return planetAngleAtYear(name, launchYear) * Math.PI / 180;
+    }
+    // Simulate time passing: at prog=0 → launch time, at prog=1 → arrival time
+    const daysElapsed = transferDays * prog;
+    const yearElapsed = launchYear + daysElapsed / 365.25;
+    return planetAngleAtYear(name, yearElapsed) * Math.PI / 180;
+  }
+
+  function drawScene(transferProgress) {
+    ctx.clearRect(0, 0, W, H);
+
+    // Stars
+    ctx.fillStyle = 'rgba(200,230,255,0.4)';
+    for (let i = 0; i < 120; i++) {
+      const sx = ((i * 137.5 + 50) % W);
+      const sy = ((i * 97.3 + 30) % H);
+      const sr = (i % 3 === 0) ? 1.2 : 0.6;
+      ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI*2); ctx.fill();
+    }
+
+    // Sun — fixed pixel size so it never dominates the view
+    const sunGlowR = 40;
+    const sunCoreR = 12;
+    const sunGrd = ctx.createRadialGradient(cx,cy,0,cx,cy,sunGlowR);
+    sunGrd.addColorStop(0,'rgba(255,240,100,0.9)');
+    sunGrd.addColorStop(0.35,'rgba(255,180,0,0.5)');
+    sunGrd.addColorStop(0.7,'rgba(255,100,0,0.15)');
+    sunGrd.addColorStop(1,'rgba(255,80,0,0)');
+    ctx.beginPath(); ctx.arc(cx,cy,sunGlowR,0,Math.PI*2);
+    ctx.fillStyle=sunGrd; ctx.fill();
+    ctx.beginPath(); ctx.arc(cx,cy,sunCoreR,0,Math.PI*2);
+    ctx.fillStyle='#fff7a0'; ctx.fill();
+    ctx.beginPath(); ctx.arc(cx,cy,sunCoreR*0.7,0,Math.PI*2);
+    ctx.fillStyle='#ffe060'; ctx.fill();
+
+    const visiblePlanets = Object.keys(PLANET_DATA).filter(n => {
+      if (n === 'Moon') return selectedPlanet === 'Moon'; // only show Moon when targeting it
+      return PLANET_DATA[n].a <= maxAU + 1;
+    });
+
+    // Draw orbit rings
+    visiblePlanets.forEach(name => {
+      const p = PLANET_DATA[name];
+      const rx = p.a * scale;
+      const ry = rx;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI*2);
+      ctx.strokeStyle = name === selectedPlanet
+        ? 'rgba(255,200,0,0.25)'
+        : 'rgba(100,160,200,0.1)';
+      ctx.lineWidth = name === selectedPlanet ? 1.5 : 1;
+      ctx.stroke();
+    });
+
+    // Transfer arc + spacecraft
+    if (showTransfer && missionData) {
+      const { r1, r2, orbit } = missionData;
+      const prog = Math.min(transferProgress, 1);
+
+      // Earth's screen position at launch
+      const ep = auToScreen(r1*Math.cos(earthLaunchRad), r1*Math.sin(earthLaunchRad));
+      const ex = ep.x, ey = ep.y;
+
+      // Target planet's screen position at arrival (prog=1)
+      const targetArrivalRad = getPlanetAngleAtProgress(selectedPlanet, 1);
+      let tx, ty;
+      if (selectedPlanet === 'Moon') {
+        // Moon's visual position = Earth position + visual offset
+        const earthArrivalRad = getPlanetAngleAtProgress('Earth', 1);
+        const earthArrX = PLANET_DATA['Earth'].a * Math.cos(earthArrivalRad);
+        const earthArrY = PLANET_DATA['Earth'].a * Math.sin(earthArrivalRad);
+        const moonVisualOffset = 0.08;
+        const moonArrX = earthArrX + moonVisualOffset * Math.cos(targetArrivalRad);
+        const moonArrY = earthArrY + moonVisualOffset * Math.sin(targetArrivalRad);
+        const tp = auToScreen(moonArrX, moonArrY);
+        tx = tp.x; ty = tp.y;
+      } else {
+        const tp = auToScreen(r2*Math.cos(targetArrivalRad), r2*Math.sin(targetArrivalRad));
+        tx = tp.x; ty = tp.y;
+      }
+
+      // Control point for the bezier arc
+      // For the Moon: arc stays near Earth so use a perpendicular offset (not toward Sun)
+      // For other planets: pull inward toward Sun to simulate the elliptical Hohmann arc
+      let cpx, cpy;
+      if (selectedPlanet === 'Moon') {
+        // Moon is close to Earth — arc curves around Earth, NOT toward Sun
+        // Use a large perpendicular offset so the arc stays in Earth's neighbourhood
+        const perpX = -(ty - ey);
+        const perpY = (tx - ex);
+        const perpLen = Math.hypot(perpX, perpY) || 1;
+        const arcBulge = Math.hypot(tx - ex, ty - ey) * 1.2; // scale bulge to distance
+        cpx = (ex + tx) / 2 + (perpX / perpLen) * Math.max(arcBulge, 80);
+        cpy = (ey + ty) / 2 + (perpY / perpLen) * Math.max(arcBulge, 80);
+      } else {
+        // For solar system transfers: control point is placed between Earth and Sun
+        // but NOT past the Sun — limit how far it can pull inward
+        const midX = (ex + tx) / 2;
+        const midY = (ey + ty) / 2;
+        const distMid = Math.hypot(midX - cx, midY - cy);
+        const toSunX = cx - midX;
+        const toSunY = cy - midY;
+        const toSunLen = Math.hypot(toSunX, toSunY) || 1;
+        // Pull only 40% toward sun, but never past the sun itself
+        const maxPull = distMid * 0.4;
+        cpx = midX + (toSunX / toSunLen) * maxPull;
+        cpy = midY + (toSunY / toSunLen) * maxPull;
+      }
+
+      // Dashed arc
+      ctx.save();
+      ctx.setLineDash([7, 5]);
+      ctx.beginPath();
+      ctx.moveTo(ex, ey);
+      ctx.quadraticCurveTo(cpx, cpy, tx, ty);
+      ctx.strokeStyle = '#00ff9d';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+
+      // Spacecraft: interpolate along the bezier curve
+      // Quadratic bezier formula: B(t) = (1-t)²P0 + 2(1-t)tP1 + t²P2
+      const t = prog;
+      const ship_x = (1-t)*(1-t)*ex + 2*(1-t)*t*cpx + t*t*tx;
+      const ship_y = (1-t)*(1-t)*ey + 2*(1-t)*t*cpy + t*t*ty;
+
+      // Glow
+      ctx.beginPath();
+      ctx.arc(ship_x, ship_y, 12, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(0,255,157,0.12)';
+      ctx.fill();
+
+      // Dot
+      ctx.beginPath();
+      ctx.arc(ship_x, ship_y, 5, 0, Math.PI*2);
+      ctx.fillStyle = '#00ff9d';
+      ctx.shadowBlur = 14;
+      ctx.shadowColor = '#00ff9d';
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // Departure marker on Earth
+      if (prog < 0.08) {
+        ctx.beginPath();
+        ctx.arc(ex, ey, 10 + prog * 40, 0, Math.PI*2);
+        ctx.strokeStyle = `rgba(0,255,157,${0.6 - prog * 7})`;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+
+      // Arrival flash
+      if (prog > 0.94) {
+        const flash = (prog - 0.94) / 0.06;
+        ctx.beginPath();
+        ctx.arc(tx, ty, flash * 22, 0, Math.PI*2);
+        ctx.strokeStyle = `rgba(0,255,157,${0.7 - flash * 0.7})`;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+
+    // Draw planets with time-animated positions
+    const prog = Math.min(transferProgress, 1);
+    visiblePlanets.forEach(name => {
+      const p = PLANET_DATA[name];
+      const angleRad = getPlanetAngleAtProgress(name, showTransfer ? prog : 0);
+      let px, py;
+      if (name === 'Moon') {
+        // Moon orbits Earth — position relative to Earth
+        const earthAngle = getPlanetAngleAtProgress('Earth', showTransfer ? prog : 0);
+        const earthX = PLANET_DATA['Earth'].a * Math.cos(earthAngle);
+        const earthY = PLANET_DATA['Earth'].a * Math.sin(earthAngle);
+        // Moon is ~0.00257 AU from Earth, show it offset visually
+        const moonVisualOffset = 0.08; // exaggerated for visibility
+        px = earthX + moonVisualOffset * Math.cos(angleRad);
+        py = earthY + moonVisualOffset * Math.sin(angleRad);
+      } else {
+        px = p.a * Math.cos(angleRad);
+        py = p.a * Math.sin(angleRad);
+      }
+      const sp = auToScreen(px, py);
+
+      // Glow
+      const g = ctx.createRadialGradient(sp.x,sp.y,0,sp.x,sp.y,p.size*3);
+      g.addColorStop(0, p.color+'99');
+      g.addColorStop(1, p.color+'00');
+      ctx.beginPath(); ctx.arc(sp.x,sp.y,p.size*3,0,Math.PI*2);
+      ctx.fillStyle=g; ctx.fill();
+
+      // Body
+      const drawSize = (name === 'Moon' && name === selectedPlanet) ? 7 : p.size;
+      ctx.beginPath(); ctx.arc(sp.x,sp.y,drawSize,0,Math.PI*2);
+      ctx.fillStyle = name===selectedPlanet ? '#ffcc00' : p.color;
+      ctx.fill();
+
+      if (name===selectedPlanet) {
+        ctx.beginPath(); ctx.arc(sp.x,sp.y,drawSize+4,0,Math.PI*2);
+        ctx.strokeStyle='rgba(255,200,0,0.5)'; ctx.lineWidth=1.5; ctx.stroke();
+      }
+
+      // Label
+      ctx.font = `${name===selectedPlanet||name==='Earth'?'bold ':''} 9px "Share Tech Mono"`;
+      ctx.fillStyle = name===selectedPlanet ? '#ffcc00' : 'rgba(180,210,240,0.55)';
+      ctx.textAlign='center';
+      const labelYOff = name === 'Moon' ? -(drawSize + 14) : drawSize + 12;
+      ctx.fillText(name.toUpperCase(), sp.x, sp.y + labelYOff);
+    });
+  }
+
+  if (showTransfer) {
+    // GO — animate spacecraft along transfer arc
+    let progress = 0;
+    function animate() {
+      progress += 0.003;
+      if (progress > 1.15) progress = 0;
+      drawScene(progress);
+      animFrame = requestAnimationFrame(animate);
+    }
+    animate();
+  } else {
+    // NO-GO — draw static scene then overlay abort message
+    drawScene(0);
+    if (missionData && !missionData.rocket.feasible) {
+      // Red abort overlay
+      ctx.save();
+      ctx.fillStyle = 'rgba(255,50,30,0.07)';
+      ctx.fillRect(0, 0, W, H);
+
+      // Abort text
+      ctx.font = 'bold 28px "Barlow Condensed", monospace';
+      ctx.fillStyle = 'rgba(255,80,50,0.9)';
+      ctx.textAlign = 'center';
+      ctx.fillText('⚠ LAUNCH ABORTED', W/2, H/2 - 20);
+
+      ctx.font = '11px "Share Tech Mono", monospace';
+      ctx.fillStyle = 'rgba(255,120,80,0.7)';
+      const shortage = Math.round(missionData.rocket.m_prop_needed - missionData.rocket.m_prop_available);
+      ctx.fillText(`INSUFFICIENT FUEL — ${shortage.toLocaleString()} KG SHORT`, W/2, H/2 + 14);
+
+      ctx.font = '10px "Share Tech Mono", monospace';
+      ctx.fillStyle = 'rgba(180,100,80,0.5)';
+      ctx.fillText('INCREASE FUEL MASS OR ENGINE ISP TO PROCEED', W/2, H/2 + 36);
+      ctx.restore();
+    }
+  }
+}
+
+// ── TOOLTIP ON HOVER ──────────────────────────────────────────────
+canvas.addEventListener('mousemove', e => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const tip = document.getElementById('tooltip');
+
+  const W = canvas.width, H = canvas.height;
+  const cx = W/2, cy = H/2;
+  const maxAU = selectedPlanet === "Neptune" ? 31 : selectedPlanet === "Uranus" ? 21 : selectedPlanet === "Saturn" ? 11 : selectedPlanet === "Jupiter" ? 6.5 : 2.2;
+  const scale = (Math.min(W,H) * 0.44) / maxAU;
+  const year = missionData?.year || 2026;
+
+  let found = null;
+  for (const [name, p] of Object.entries(PLANET_DATA)) {
+    if (name==='Moon' && selectedPlanet !== 'Moon') continue;
+    if (p.a > maxAU+1) continue;
+    const angleDeg = planetAngleAtYear(name, year);
+    const angleRad = angleDeg * Math.PI / 180;
+    const sx = cx + p.a * Math.cos(angleRad) * scale;
+    const sy = cy + p.a * Math.sin(angleRad) * scale;
+    if (Math.hypot(mx-sx, my-sy) < p.size + 10) { found = name; break; }
+  }
+
+  if (found) {
+    tip.style.display='block';
+    tip.style.left=(e.clientX+14)+'px';
+    tip.style.top=(e.clientY-8)+'px';
+    tip.textContent=`${PLANET_DATA[found].emoji} ${found.toUpperCase()} · ${PLANET_DATA[found].a} AU · ${PLANET_DATA[found].T}d orbit`;
+  } else {
+    tip.style.display='none';
+  }
+});
+
+// ── INIT ──────────────────────────────────────────────────────────
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+</script>
+</body>
+</html>
